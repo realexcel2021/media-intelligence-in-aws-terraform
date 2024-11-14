@@ -1,5 +1,5 @@
 resource "aws_elasticsearch_domain" "lambdaeskibana_elasticsearch_domain" {
-  domain_name = "my-domain"
+  domain_name = "media-intelligence"
 
   elasticsearch_version = "7.10"
 
