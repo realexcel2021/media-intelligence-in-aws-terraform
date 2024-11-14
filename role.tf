@@ -229,8 +229,10 @@ resource "aws_iam_policy" "MediaConvertS3RolePolicy" {
 resource "aws_iam_policy" "MediaConvertCloudWatchEventsPolicy" {
   name   = "MediaConvertCloudWatchEventsPolicy"
   policy = jsonencode({
+    Version = "2012-10-17"
     Statement = [
       {
+        
         Effect = "Allow"
         Action = [
           "cloudwatch:PutMetricData",

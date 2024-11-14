@@ -127,7 +127,7 @@ resource "aws_lambda_function" "ESLambda" {
 
 # BrandFrom Text Anaylsis Lambda
 resource "aws_lambda_function" "BrandFromTextAnalysis" {
-  filename         = "path/to/BrandFromTextAnalysis.zip"
+  filename         = "src/BrandFromTextAnalysis.zip"
   function_name    = "BrandFromTextAnalysis"
   handler          = "bft.lambda_handler"
   runtime          = "python3.8"
@@ -237,7 +237,7 @@ resource "aws_lambda_permission" "AllowSNSInvokeLambdaBrandFromTextAnalysis" {
 
 # StartAnalysis Function 
 resource "aws_lambda_function" "StartAnalysisFunction" {
-  filename         = "path/to/StartAnalysisFunction.zip"
+  filename         = "src/StartAnalysisFunction.zip"
   function_name    = "StartAnalysisFunction"
   handler          = "main.lambda_handler"
   runtime          = "python3.8"
@@ -340,54 +340,6 @@ resource "aws_lambda_permission" "AllowAPIGatewayInvokeLambdaStartAnalysisFuncti
   source_arn    = aws_api_gateway_rest_api.RestAPI.execution_arn
 }
 
-resource "aws_iam_role" "MediaConvertS3RoleStartAnalysisFunction" {
-  name = "MediaConvertS3Role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "mediaconvert.amazonaws.com"
-        }
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
-
-  inline_policy {
-    name = "MediaConvertS3RolePolicy"
-    policy = jsonencode({
-      Statement = [
-        {
-          Effect = "Allow"
-          Action = [
-            "s3:GetObject",
-            "s3:PutObject"
-          ]
-          Resource = [
-            "arn:aws:s3:::${var.s3_bucket}/*",
-            "arn:aws:s3:::${var.destination_bucket}/*"
-          ]
-        },
-        {
-          Effect = "Allow"
-          Action = [
-            "cloudwatch:PutMetricData",
-            "cloudwatch:PutMetricStream",
-            "logs:*"
-          ]
-          Resource = [
-            "arn:aws:logs::${data.aws_caller_identity.current.account_id}:*:*:*",
-            "arn:aws:cloudwatch::${data.aws_caller_identity.current.account_id}:*/*",
-            "arn:aws:cloudwatch::${data.aws_caller_identity.current.account_id}:*"
-          ]
-        }
-      ]
-    })
-  }
-}
 
 # SearchAnalysis Function
 resource "aws_lambda_function" "SearchAnalysisFunction" {

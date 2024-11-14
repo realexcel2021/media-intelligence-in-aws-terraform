@@ -48,7 +48,6 @@ resource "aws_iam_role" "AllowPublishAlarmsRole" {
       Version = "2012-10-17",
       Statement = [
         {
-          Sid = "Allow_Publish_Alarms",
           Effect = "Allow",
           Action = "sns:Publish",
           Resource = "*"
