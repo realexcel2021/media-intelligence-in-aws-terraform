@@ -1,0 +1,605 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Media Inteligence Processor backend SAM Template
+
+
+Parameters:
+  Email:
+    Type: String
+    Description: Email to notify when fail occurs
+    Default: "email@domain.com"
+  S3Bucket:
+    Type: String
+    Description: Your Amazon S3 bucket name
+    Default: "aprendiendoaws-ml-mi"
+  DestinationBucket:
+    Type: String
+    Description: Amazon S3 bucket to bulk frames and audio outputs
+    Default: "results"
+  ESDomainName:
+    Type: String
+    Description: Amazon ElasticSearch Domain name
+    Default: 'aprendiendoaws-ml-mi-domain'
+  CognitoDomainName:
+    Type: String
+    Description: Amazon Cognito Domain name (Has to be unique)
+    Default: 'aprendiendoaws-ml-mi-kibana'
+  DynamoDBTable:
+    Type: String
+    Default: 'aprendiendoaws-ml-mi-jobs'
+  StageName:
+    Type: String
+    Default: 'Prod'
+  OSCDictionary:
+    Type: String
+    Default: 'osc_files/dictionary.json'
+  LambdaRole:
+    Type: String
+  ESDomainEndpoint:
+    Type: String
+
+Globals:
+  Function:
+    Runtime: python3.8
+    Handler: app.lambda_handler
+    Timeout: 300
+    MemorySize: 1024
+    Environment:
+      Variables:
+        STAGE: !Ref StageName
+        MIN_ACCURACY: 80
+Resources:
+  #############
+  # IAM Roles #
+  #############
+  MediaConvertS3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - mediaconvert.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: MediaConvertS3RolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3Bucket}/*"
+                  - !Sub "arn:aws:s3:::${DestinationBucket}/*"
+        - PolicyName: MediaConvertCloudWatchEventsPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:PutMetricStream
+                  - logs:*
+                Resource:
+                  - !Sub "arn:aws:logs::${AWS::AccountId}:*:*:*"
+                  - !Sub "arn:aws:cloudwatch::${AWS::AccountId}:*/*"
+                  - !Sub "arn:aws:cloudwatch::${AWS::AccountId}:*"
+  APILambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: LambdaWorkflowRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3Bucket}/*"
+                  - !Sub "arn:aws:s3:::${DestinationBucket}/*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs::${AWS::AccountId}:*:*:*"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:Get*
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}"
+                  - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}/*"
+
+
+  RestAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: RestAPI
+      StageName: !Ref StageName
+      AccessLogSetting:
+        DestinationArn: !GetAtt RestAPIAccessLogGroup.Arn
+        Format: "$context.requestId $context.authorize.status $context.integration.integrationStatus $context.integrationErrorMessage"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          LoggingLevel: INFO
+          MetricsEnabled: True
+      Auth:
+        ApiKeyRequired: true
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          UsagePlanName: !Sub "${AWS::StackName}-usage-plan"
+          Description: Customer usage plan
+          Quota:
+            Limit: 5000
+            Period: MONTH
+          Throttle:
+            BurstLimit: 200
+            RateLimit: 100
+      Cors:
+        AllowOrigin: "'*'"
+        AllowMethods: "'GET,POST'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+
+
+  StartAnalysisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api/start_analysis/
+      Handler: main.lambda_handler
+      Environment:
+        Variables:
+          DDB_TABLE: !Ref DynamoDBTable
+          MEDIA_CONVERT_ARN: !GetAtt MediaConvertS3Role.Arn
+          DEST_S3_BUCKET: !Ref DestinationBucket
+          IN_S3_BUCKET: !Ref S3Bucket
+          SNS_TOPIC: !Ref VideoAnalysisTopic
+      Events:
+        StartVideoAnalysis:
+          Type: Api
+          Properties:
+            Path: /analysis/start
+            Method: POST
+            RestApiId: !Ref RestAPI
+            Auth:
+              ApiKeyRequired: true
+      Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - Statement:
+          - Effect: Allow
+            Action:
+              - mediaconvert:GetJob
+              - mediaconvert:ListJobs
+              - mediaconvert:DescribeEndpoints
+              - mediaconvert:CreateJob
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource:
+              - !GetAtt MediaConvertS3Role.Arn
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::${S3Bucket}/*"
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub "arn:aws:logs::${AWS::AccountId}:*:*:*"
+          - Effect: Allow
+            Action:
+              - dynamodb:Query
+              - dynamodb:PutItem
+            Resource:
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}"
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}/*"
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - !Ref VideoAnalysisTopic
+  SearchAnalysisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api/search_analysis/
+      Handler: main.lambda_handler
+      Role: !Ref LambdaRole
+      Environment:
+        Variables:
+          DOMAIN_ENDPOINT: !Ref ESDomainEndpoint
+      Events:
+        StartVideoAnalysis:
+          Type: Api
+          Properties:
+            Path: /analysis/search
+            Method: POST
+            RestApiId: !Ref RestAPI
+            Auth:
+             ApiKeyRequired: true
+
+  MediaConvertJobChecker:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: auxiliary/media_convert_job_checker/
+      Handler: media-convert-job-checker.lambda_handler
+      Environment:
+        Variables:
+          SNS_TOPIC: !Ref VideoAnalysisTopic
+          SNS_EMAIL_TOPIC: !Ref EmailTopic
+          IN_S3_BUCKET: !Ref S3Bucket
+          DDB_TABLE: !Ref DynamoDBTable
+      Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - Statement:
+          - Effect: Allow
+            Action:
+              - mediaconvert:GetJob
+              - mediaconvert:DescribeEndpoints
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+            Resource:
+              - !GetAtt MediaConvertS3Role.Arn
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::${S3Bucket}/*"
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub "arn:aws:logs::${AWS::AccountId}:*:*:*"
+          - Effect: Allow
+            Action:
+              - dynamodb:Query
+              - dynamodb:PutItem
+            Resource:
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}"
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}/*"
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - !Ref VideoAnalysisTopic
+              - !Ref EmailTopic
+  GetAnalysisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api/query_analysis/
+      Handler: main.lambda_handler
+      Role: !GetAtt APILambdaRole.Arn
+      Environment:
+        Variables:
+          DDB_TABLE: !Ref DynamoDBTable
+          ANALYSIS_LIST: "['osc','bft','bfl','cff']"
+      Events:
+        GetVideoAnalysis:
+          Type: Api
+          Properties:
+            Path: /analysis/
+            Method: POST
+            RestApiId: !Ref RestAPI
+            Auth:
+              ApiKeyRequired: true
+
+
+  SceneClassification:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: analysis/object_scene_classification/
+      Handler: osc.lambda_handler
+      Timeout: 900
+      Environment:
+        Variables:
+          IN_S3_BUCKET: !Ref S3Bucket
+          DDB_TABLE: !Ref DynamoDBTable
+          DEST_S3_BUCKET: !Ref DestinationBucket
+          ES_LAMBDA_ARN: !GetAtt ESLambda.Arn
+          OSC_DICT: !Ref OSCDictionary
+          SNS_EMAIL_TOPIC: !Ref EmailTopic
+      Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - Statement:
+          - Effect: Allow
+            Action:
+              - rekognition:DetectLabels
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::${S3Bucket}/*"
+              - !Sub "arn:aws:s3:::${DestinationBucket}/*"
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub "arn:aws:logs::${AWS::AccountId}:*:*:*"
+          - Effect: Allow
+            Action:
+              - dynamodb:Query
+              - dynamodb:PutItem
+              - dynamodb:BatchWriteItem
+            Resource:
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}"
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}/*"
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource:
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - !Ref EmailTopic
+  BrandFromTextAnalysis:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: analysis/brand_from_text/
+      Handler: bft.lambda_handler
+      Environment:
+        Variables:
+          DDB_TABLE: !Ref DynamoDBTable
+          IN_S3_BUCKET: !Ref S3Bucket
+          DEST_S3_BUCKET: !Ref DestinationBucket
+          SIM_THRESHOLD: 0.7
+          ES_LAMBDA_ARN: !GetAtt ESLambda.Arn
+          SNS_EMAIL_TOPIC: !Ref EmailTopic
+      Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - Statement:
+          - Effect: Allow
+            Action:
+              - rekognition:StartTextDetection
+              - rekognition:GetTextDetection
+              - rekognition:DetectText
+            Resource:
+              - "*"
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::${S3Bucket}/*"
+              - !Sub "arn:aws:s3:::${DestinationBucket}/*"
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - !Sub "arn:aws:logs::${AWS::AccountId}:*:*:*"
+          - Effect: Allow
+            Action:
+              - dynamodb:PutItem
+              - dynamodb:BatchWriteItem
+            Resource:
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}"
+              - !Sub "arn:aws:dynamodb:*:*:table/${DynamoDBTable}/*"
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource:
+              - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - !Ref EmailTopic
+
+  MCLambdaInvokePermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref MediaConvertTopic
+      FunctionName: !GetAtt MediaConvertJobChecker.Arn
+  SceneClassificationLambdaInvokePermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref VideoAnalysisTopic
+      FunctionName: !GetAtt SceneClassification.Arn
+  BrandFromTextLambdaInvokePermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref VideoAnalysisTopic
+      FunctionName: !GetAtt BrandFromTextAnalysis.Arn
+
+
+  ESLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: auxiliary/index_results
+      Handler: esindex.lambda_handler
+      Role: !Ref LambdaRole
+      Environment:
+        Variables:
+          AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+          DOMAIN_ENDPOINT: !Ref ESDomainEndpoint
+
+  MediaConvertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint:
+            !GetAtt MediaConvertJobChecker.Arn
+          Protocol: "lambda"
+      TopicName: "MCJobStatus"
+  VideoAnalysisTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: "VidAnalysisTopic"
+  #OSC - Object Scene Classification
+  oscSub:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt SceneClassification.Arn
+      Protocol: lambda
+      FilterPolicy: '{"analysis": ["all", "osc"]}'
+      TopicArn: !Ref VideoAnalysisTopic
+
+  bftSub:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt BrandFromTextAnalysis.Arn
+      Protocol: lambda
+      FilterPolicy: '{"analysis": ["all", "bft"]}'
+      TopicArn: !Ref VideoAnalysisTopic
+  EmailTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: NotificationTopic
+      Subscription:
+        - Endpoint: !Ref Email
+          Protocol: email
+
+
+  EventTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: "*"
+      Topics:
+        - !Ref MediaConvertTopic
+
+  ApiGatewayCloudWatchLogsRole:
+    Type: 'AWS::IAM::Role'
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Principal: 
+              Service: 'apigateway.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies: 
+        - PolicyName: 'AmazonAPIGatewayPushToCloudWatchLogsPolicy'
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              - Effect: 'Allow'
+                Action: 
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+
+        
+  MediaConvertJobEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - "aws.mediaconvert"
+        detail-type:
+          - "MediaConvert Job State Change"
+        detail:
+          status:
+            - "COMPLETE"
+            - "ERROR"
+      Targets:
+        -
+          Arn: !Ref MediaConvertTopic
+          Id: "MCJobsTopic"
+          InputTransformer:
+            InputPathsMap:
+              job_id: "$.detail.jobId"
+            InputTemplate: |
+              "job_id:<job_id>"
+  RestAPIAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+      LogGroupName: "RestAPIAccessLog"
+  #####################
+  #  DynamoDB Table   #
+  #####################
+  ResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref DynamoDBTable
+      AttributeDefinitions:
+        - AttributeName: S3Key
+          AttributeType: S
+        - AttributeName: AttrType
+          AttributeType: S
+        - AttributeName: JobId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: S3Key
+          KeyType: HASH
+        - AttributeName: AttrType
+          KeyType: RANGE
+      LocalSecondaryIndexes:
+        - IndexName: JobIdIndex
+          KeySchema:
+            - AttributeName: S3Key
+              KeyType: HASH
+            - AttributeName: JobId
+              KeyType: RANGE
+          Projection:
+            NonKeyAttributes:
+              - analysis
+            ProjectionType: INCLUDE
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: cost
+          Value: aws-ee
