@@ -210,6 +210,7 @@ resource "aws_iam_role" "MediaConvertS3Role" {
 resource "aws_iam_policy" "MediaConvertS3RolePolicy" {
   name   = "MediaConvertS3RolePolicy"
   policy = jsonencode({
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
@@ -284,6 +285,7 @@ resource "aws_iam_role_policy" "LambdaWorkflowRolePolicy" {
   name   = "LambdaWorkflowRolePolicy"
   role   = aws_iam_role.APILambdaRole.name
   policy = jsonencode({
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"

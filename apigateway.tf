@@ -51,18 +51,12 @@ resource "aws_cloudwatch_log_group" "RestAPIAccessLogGroup" {
   name = "/aws/apigateway/RestAPIAccessLogGroup"
 }
 
-resource "aws_api_gateway_resource" "analysis" {
-  rest_api_id = aws_api_gateway_rest_api.RestAPI.id
-  parent_id   = aws_api_gateway_rest_api.RestAPI.root_resource_id
-  path_part   = "analysis"
-}
-
 ###############################
 # start video analysis endpoint
 ###############################
 resource "aws_api_gateway_resource" "StartVideoAnalysisResource" {
   rest_api_id = aws_api_gateway_rest_api.RestAPI.id
-  parent_id   = aws_api_gateway_resource.analysis.id
+  parent_id   = aws_api_gateway_resource.GetVideoAnalysisResource.id
   path_part   = "start"
 }
 resource "aws_api_gateway_method" "StartVideoAnalysisMethod" {
@@ -87,7 +81,7 @@ resource "aws_api_gateway_integration" "StartVideoAnalysisIntegration" {
 
 resource "aws_api_gateway_resource" "SearchVideoAnalysisResource" {
   rest_api_id = aws_api_gateway_rest_api.RestAPI.id
-  parent_id   = aws_api_gateway_resource.analysis.id
+  parent_id   = aws_api_gateway_resource.GetVideoAnalysisResource.id
   path_part   = "search"
 }
 resource "aws_api_gateway_method" "SearchVideoAnalysisMethod" {
@@ -104,4 +98,27 @@ resource "aws_api_gateway_integration" "SearchVideoAnalysisIntegration" {
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.SearchAnalysisFunction.invoke_arn
+}
+
+
+resource "aws_api_gateway_resource" "GetVideoAnalysisResource" {
+  rest_api_id = aws_api_gateway_rest_api.RestAPI.id
+  parent_id   = aws_api_gateway_rest_api.RestAPI.root_resource_id
+  path_part   = "analysis"
+}
+
+resource "aws_api_gateway_method" "GetVideoAnalysisMethod" {
+  rest_api_id   = aws_api_gateway_rest_api.RestAPI.id
+  resource_id   = aws_api_gateway_resource.GetVideoAnalysisResource.id
+  http_method   = "POST"
+  authorization = "NONE"
+  api_key_required = true
+}
+resource "aws_api_gateway_integration" "GetVideoAnalysisIntegration" {
+  rest_api_id             = aws_api_gateway_rest_api.RestAPI.id
+  resource_id             = aws_api_gateway_resource.GetVideoAnalysisResource.id
+  http_method             = aws_api_gateway_method.GetVideoAnalysisMethod.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.GetAnalysisFunction.invoke_arn
 }
