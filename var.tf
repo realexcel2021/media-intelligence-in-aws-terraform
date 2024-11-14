@@ -43,11 +43,3 @@ variable "osc_dictionary" {
   type    = string
   default = "osc_files/dictionary.json"
 }
-
-variable "lambda_role" {
-  type = string
-}
-
-variable "es_domain_endpoint" {
-  type = string
-}
