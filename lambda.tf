@@ -132,6 +132,7 @@ resource "aws_lambda_function" "BrandFromTextAnalysis" {
   handler          = "bft.lambda_handler"
   runtime          = "python3.9"
   role             = aws_iam_role.BrandFromTextAnalysisLambdaRole.arn
+  timeout          = 300 
 
   environment {
     variables = {
