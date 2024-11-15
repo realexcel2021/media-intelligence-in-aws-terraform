@@ -38,7 +38,7 @@ resource "aws_elasticsearch_domain" "lambdaeskibana_elasticsearch_domain" {
           ]
         }
         Action = "es:ESHttp*"
-        Resource = "arn:aws:es:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:domain/my-domain/*"
+        Resource = "arn:aws:es:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:domain/media-intelligence/*"
       }
     ]
   })

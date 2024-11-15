@@ -28,7 +28,9 @@ resource "aws_iam_policy" "lambda_function_service_role_policy" {
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "logs:PutLogEvents",
+          "rekognition:*",
+          "s3:*"
         ]
         Effect = "Allow"
         Resource = "*"
@@ -215,8 +217,7 @@ resource "aws_iam_policy" "MediaConvertS3RolePolicy" {
       {
         Effect = "Allow"
         Action = [
-          "s3:GetObject",
-          "s3:PutObject"
+          "s3:*",
         ]
         Resource = [
           "arn:aws:s3:::${var.s3_bucket}/*",

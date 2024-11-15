@@ -3,7 +3,7 @@ resource "aws_lambda_function" "SceneClassification" {
   filename         = "src/SceneClassification.zip"
   function_name    = "SceneClassification"
   handler          = "osc.lambda_handler"
-  runtime          = "python3.8"
+  runtime          = "python3.9"
   timeout          = 900
   role             = aws_iam_role.SceneClassificationLambdaRole.arn
 
@@ -130,8 +130,8 @@ resource "aws_lambda_function" "BrandFromTextAnalysis" {
   filename         = "src/BrandFromTextAnalysis.zip"
   function_name    = "BrandFromTextAnalysis"
   handler          = "bft.lambda_handler"
-  runtime          = "python3.8"
-  role             = aws_iam_role.lambdaeskibanaLambdaFunctionServiceRole3CAA4E89.arn
+  runtime          = "python3.9"
+  role             = aws_iam_role.BrandFromTextAnalysisLambdaRole.arn
 
   environment {
     variables = {
@@ -356,6 +356,14 @@ resource "aws_lambda_function" "SearchAnalysisFunction" {
   }
 }
 
+resource "aws_lambda_permission" "AllowAPIGatewayInvokeLambdaSearchAnalysisFunction" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.SearchAnalysisFunction.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.RestAPI.execution_arn}/*/*/*"
+}
+
 
 resource "aws_lambda_function" "MediaConvertJobChecker" {
   filename         = "src/MediaConvertJobChecker.zip"
@@ -478,11 +486,10 @@ resource "aws_lambda_function" "GetAnalysisFunction" {
   }
 }
 
-
-
-
-
-
-
-
-
+resource "aws_lambda_permission" "AllowAPIGatewayInvokeLambdaGetAnalysisFunction" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.GetAnalysisFunction.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.RestAPI.execution_arn}/*/*/*"
+}
