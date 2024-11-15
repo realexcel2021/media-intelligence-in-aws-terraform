@@ -1,0 +1,18 @@
+{
+  "Records": [
+    {
+      "Sns": {
+        "Message": {
+          "S3Key": "havaianas.mp4",
+          "SampleRate": 1,
+          "analysis": [
+            "all"
+          ],
+          "IgnoreExtract": false,
+          "JobId": "testJobIdMessage",
+          "OutputPath": "/asdf"
+        }
+      }
+    }
+  ]
+}
