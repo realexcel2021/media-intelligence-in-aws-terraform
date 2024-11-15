@@ -7,12 +7,6 @@ This solution provides a **Media Intelligence Video Analysis** layer to identify
 - Media content moderation.
 - Media content classification.
 
-## License Summary
-
-This documentation is licensed under the Creative Commons Attribution-ShareAlike 4.0 International License. See the LICENSE file for more details.  
-The sample code is licensed under the MIT-0 license. See the LICENSE-SAMPLECODE file.
-
----
 
 ## Solution Architecture
 
